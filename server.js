@@ -58,6 +58,8 @@ async function initializePostgresDatabase() {
         notes TEXT,
         stages TEXT NOT NULL,
         pauses TEXT,
+        responsibilities TEXT,
+        completed BOOLEAN DEFAULT FALSE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
@@ -72,30 +74,44 @@ async function initializePostgresDatabase() {
     
     if (columnsResult.rows.length > 0) {
       console.log('📦 Migrating from single type to project_types...');
-      
+
       // Add new columns if they don't exist
       await db.query(`
-        ALTER TABLE projects 
+        ALTER TABLE projects
         ADD COLUMN IF NOT EXISTS practice_name TEXT,
         ADD COLUMN IF NOT EXISTS brief_description TEXT,
         ADD COLUMN IF NOT EXISTS project_types TEXT
       `).catch(() => {}); // Ignore if already exists
-      
+
       // Migrate data from type to project_types
       await db.query(`
-        UPDATE projects 
-        SET project_types = CASE 
+        UPDATE projects
+        SET project_types = CASE
           WHEN project_types IS NULL THEN '["' || type || '"]'
           ELSE project_types
         END
         WHERE project_types IS NULL OR project_types = ''
       `);
-      
+
       // Drop old type column
       await db.query(`ALTER TABLE projects DROP COLUMN IF EXISTS type`);
-      
+
       console.log('✅ Migration completed!');
     }
+
+    // Add responsibilities and completed columns if they don't exist
+    console.log('📦 Checking for responsibilities and completed columns...');
+    await db.query(`
+      ALTER TABLE projects
+      ADD COLUMN IF NOT EXISTS responsibilities TEXT
+    `).catch(() => {});
+
+    await db.query(`
+      ALTER TABLE projects
+      ADD COLUMN IF NOT EXISTS completed BOOLEAN DEFAULT FALSE
+    `).catch(() => {});
+
+    console.log('✅ New columns added (if they were missing)');
     
     await db.query(`
       CREATE TABLE IF NOT EXISTS settings (
@@ -116,13 +132,37 @@ async function initializePostgresDatabase() {
 
 // Initialize SQLite database (for local dev)
 function initializeSQLiteDatabase() {
-  // Check if old schema exists
+  // Check if table exists
   db.get("SELECT sql FROM sqlite_master WHERE type='table' AND name='projects'", (err, row) => {
-    if (row && row.sql && row.sql.includes('type TEXT')) {
-      console.log('📦 Migrating SQLite schema...');
+    if (!row) {
+      // No table exists, create fresh
+      createSQLiteTables();
+    } else if (row.sql.includes('type TEXT') && !row.sql.includes('project_types')) {
+      // Old schema with single 'type' column
+      console.log('📦 Migrating from old schema (type -> project_types)...');
       migrateSQLiteSchema();
     } else {
-      createSQLiteTables();
+      // Table exists, check actual columns using PRAGMA
+      db.all("PRAGMA table_info(projects)", (err, columns) => {
+        if (err) {
+          console.error('❌ Error checking columns:', err);
+          return;
+        }
+
+        const columnNames = columns.map(col => col.name);
+        const hasResponsibilities = columnNames.includes('responsibilities');
+        const hasCompleted = columnNames.includes('completed');
+
+        if (!hasResponsibilities || !hasCompleted) {
+          // Missing new columns
+          console.log('📦 Adding responsibilities and completed columns...');
+          addNewColumnsToExistingTable();
+        } else {
+          // Table exists with all columns
+          console.log('✅ Projects table ready!');
+          createSettingsTable();
+        }
+      });
     }
   });
 }
@@ -147,6 +187,8 @@ function migrateSQLiteSchema() {
         notes TEXT,
         stages TEXT NOT NULL,
         pauses TEXT,
+        responsibilities TEXT,
+        completed INTEGER DEFAULT 0,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
@@ -154,13 +196,13 @@ function migrateSQLiteSchema() {
     
     // Copy data, converting type to project_types array
     db.run(`
-      INSERT INTO projects_new 
-      (id, number, name, practice_name, brief_description, client, value, area, location, 
-       project_types, type_color, thumbnail, notes, stages, pauses, created_at, updated_at)
-      SELECT 
+      INSERT INTO projects_new
+      (id, number, name, practice_name, brief_description, client, value, area, location,
+       project_types, type_color, thumbnail, notes, stages, pauses, responsibilities, completed, created_at, updated_at)
+      SELECT
         id, number, name, NULL, NULL, client, value, area, location,
         '["' || type || '"]',
-        type_color, thumbnail, notes, stages, pauses, created_at, updated_at
+        type_color, thumbnail, notes, stages, pauses, NULL, 0, created_at, updated_at
       FROM projects
     `, (err) => {
       if (err) {
@@ -189,6 +231,43 @@ function migrateSQLiteSchema() {
   });
 }
 
+function addNewColumnsToExistingTable() {
+  db.serialize(() => {
+    // Check if responsibilities column exists
+    db.all("PRAGMA table_info(projects)", (err, columns) => {
+      if (err) {
+        console.error('❌ Error checking columns:', err);
+        return;
+      }
+
+      const hasResponsibilities = columns.some(col => col.name === 'responsibilities');
+      const hasCompleted = columns.some(col => col.name === 'completed');
+
+      if (!hasResponsibilities) {
+        console.log('Adding responsibilities column...');
+        db.run('ALTER TABLE projects ADD COLUMN responsibilities TEXT', (err) => {
+          if (err) console.error('❌ Error adding responsibilities:', err);
+          else console.log('✅ Added responsibilities column');
+        });
+      }
+
+      if (!hasCompleted) {
+        console.log('Adding completed column...');
+        db.run('ALTER TABLE projects ADD COLUMN completed INTEGER DEFAULT 0', (err) => {
+          if (err) console.error('❌ Error adding completed:', err);
+          else console.log('✅ Added completed column');
+        });
+      }
+
+      // Wait a bit for ALTER TABLE to complete, then proceed
+      setTimeout(() => {
+        console.log('✅ Migration completed!');
+        createSettingsTable();
+      }, 100);
+    });
+  });
+}
+
 function createSQLiteTables() {
   db.run(`
     CREATE TABLE IF NOT EXISTS projects (
@@ -207,6 +286,8 @@ function createSQLiteTables() {
       notes TEXT,
       stages TEXT NOT NULL,
       pauses TEXT,
+      responsibilities TEXT,
+      completed INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
@@ -365,7 +446,9 @@ app.get('/api/data', async (req, res) => {
         thumbnail: p.thumbnail,
         notes: p.notes,
         stages: JSON.parse(p.stages || '{}'),
-        pauses: JSON.parse(p.pauses || '[]')
+        pauses: JSON.parse(p.pauses || '[]'),
+        responsibilities: JSON.parse(p.responsibilities || '[]'),
+        completed: p.completed || false
       }));
       
       res.json({
@@ -399,7 +482,9 @@ app.get('/api/data', async (req, res) => {
             thumbnail: p.thumbnail,
             notes: p.notes,
             stages: JSON.parse(p.stages || '{}'),
-            pauses: JSON.parse(p.pauses || '[]')
+            pauses: JSON.parse(p.pauses || '[]'),
+            responsibilities: JSON.parse(p.responsibilities || '[]'),
+            completed: p.completed === 1
           }));
           
           res.json({
@@ -440,29 +525,31 @@ app.post('/api/projects', async (req, res) => {
     thumbnail: project.thumbnail || '',
     notes: project.notes || '',
     stages: JSON.stringify(project.stages),
-    pauses: JSON.stringify(project.pauses || [])
+    pauses: JSON.stringify(project.pauses || []),
+    responsibilities: JSON.stringify(project.responsibilities || []),
+    completed: project.completed || false
   };
   
   try {
     if (isProduction) {
       await db.query(
-        `INSERT INTO projects (id, number, name, practice_name, brief_description, client, value, area, location, 
-         project_types, type_color, thumbnail, notes, stages, pauses)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
-        [projectData.id, projectData.number, projectData.name, projectData.practiceName, 
-         projectData.briefDescription, projectData.client, projectData.value, projectData.area, 
-         projectData.location, projectData.projectTypes, projectData.typeColor, projectData.thumbnail, 
-         projectData.notes, projectData.stages, projectData.pauses]
-      );
-    } else {
-      db.run(
-        `INSERT INTO projects (id, number, name, practice_name, brief_description, client, value, area, location, 
-         project_types, type_color, thumbnail, notes, stages, pauses)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO projects (id, number, name, practice_name, brief_description, client, value, area, location,
+         project_types, type_color, thumbnail, notes, stages, pauses, responsibilities, completed)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
         [projectData.id, projectData.number, projectData.name, projectData.practiceName,
          projectData.briefDescription, projectData.client, projectData.value, projectData.area,
          projectData.location, projectData.projectTypes, projectData.typeColor, projectData.thumbnail,
-         projectData.notes, projectData.stages, projectData.pauses]
+         projectData.notes, projectData.stages, projectData.pauses, projectData.responsibilities, projectData.completed]
+      );
+    } else {
+      db.run(
+        `INSERT INTO projects (id, number, name, practice_name, brief_description, client, value, area, location,
+         project_types, type_color, thumbnail, notes, stages, pauses, responsibilities, completed)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [projectData.id, projectData.number, projectData.name, projectData.practiceName,
+         projectData.briefDescription, projectData.client, projectData.value, projectData.area,
+         projectData.location, projectData.projectTypes, projectData.typeColor, projectData.thumbnail,
+         projectData.notes, projectData.stages, projectData.pauses, projectData.responsibilities, projectData.completed ? 1 : 0]
       );
     }
     console.log('✅ Project created!');
@@ -482,25 +569,27 @@ app.put('/api/projects/:id', async (req, res) => {
   try {
     if (isProduction) {
       await db.query(
-        `UPDATE projects SET number=$1, name=$2, practice_name=$3, brief_description=$4, client=$5, 
-         value=$6, area=$7, location=$8, project_types=$9, type_color=$10, thumbnail=$11, notes=$12, 
-         stages=$13, pauses=$14, updated_at=CURRENT_TIMESTAMP
-         WHERE id=$15`,
+        `UPDATE projects SET number=$1, name=$2, practice_name=$3, brief_description=$4, client=$5,
+         value=$6, area=$7, location=$8, project_types=$9, type_color=$10, thumbnail=$11, notes=$12,
+         stages=$13, pauses=$14, responsibilities=$15, completed=$16, updated_at=CURRENT_TIMESTAMP
+         WHERE id=$17`,
         [project.number, project.name, project.practiceName || null, project.briefDescription || null,
          project.client || '', project.value || '', project.area || '', project.location || '',
          JSON.stringify(project.projectTypes || []), project.typeColor, project.thumbnail || '',
-         project.notes || '', JSON.stringify(project.stages), JSON.stringify(project.pauses || []), 
+         project.notes || '', JSON.stringify(project.stages), JSON.stringify(project.pauses || []),
+         JSON.stringify(project.responsibilities || []), project.completed || false,
          projectId]
       );
     } else {
       db.run(
-        `UPDATE projects SET number=?, name=?, practice_name=?, brief_description=?, client=?, value=?, 
-         area=?, location=?, project_types=?, type_color=?, thumbnail=?, notes=?, stages=?, pauses=?, 
-         updated_at=CURRENT_TIMESTAMP WHERE id=?`,
+        `UPDATE projects SET number=?, name=?, practice_name=?, brief_description=?, client=?, value=?,
+         area=?, location=?, project_types=?, type_color=?, thumbnail=?, notes=?, stages=?, pauses=?,
+         responsibilities=?, completed=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
         [project.number, project.name, project.practiceName || null, project.briefDescription || null,
          project.client || '', project.value || '', project.area || '', project.location || '',
          JSON.stringify(project.projectTypes || []), project.typeColor, project.thumbnail || '',
-         project.notes || '', JSON.stringify(project.stages), JSON.stringify(project.pauses || []), 
+         project.notes || '', JSON.stringify(project.stages), JSON.stringify(project.pauses || []),
+         JSON.stringify(project.responsibilities || []), project.completed ? 1 : 0,
          projectId]
       );
     }
