@@ -33,6 +33,8 @@ async function fetchProductionData() {
 
 async function syncData() {
   try {
+    console.log('🐛 DEBUG: Starting sync process...');
+
     // Check if local data file exists
     if (!fs.existsSync(LOCAL_DATA_FILE)) {
       console.error(`❌ ${LOCAL_DATA_FILE} not found!`);
@@ -40,9 +42,12 @@ async function syncData() {
       process.exit(1);
     }
 
+    console.log('🐛 DEBUG: Local data file found');
+
     // Load local data
     const localData = JSON.parse(fs.readFileSync(LOCAL_DATA_FILE, 'utf8'));
-    console.log(`📦 Local data loaded: ${localData.projects.length} projects\n`);
+    console.log(`📦 Local data loaded: ${localData.projects.length} projects`);
+    console.log(`🐛 DEBUG: First project name: ${localData.projects[0]?.name}\n`);
 
     // Fetch production data
     const prodData = await fetchProductionData();
@@ -134,11 +139,17 @@ async function syncData() {
 
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
+    console.log('🐛 DEBUG: About to ask for confirmation...');
+
     // Check if --confirm flag is present
     const autoConfirm = process.argv.includes('--confirm');
+    console.log(`🐛 DEBUG: Auto-confirm: ${autoConfirm}`);
 
     if (!autoConfirm) {
+      console.log('🐛 DEBUG: Waiting for user input...');
       const answer = await askQuestion('⚠️  Proceed with sync? (yes/no): ');
+      console.log(`🐛 DEBUG: User answered: "${answer}"`);
+
       if (answer.toLowerCase() !== 'yes' && answer.toLowerCase() !== 'y') {
         console.log('❌ Sync cancelled by user');
         rl.close();
@@ -146,6 +157,7 @@ async function syncData() {
       }
     }
 
+    console.log('🐛 DEBUG: Confirmation passed!');
     console.log('\n🚀 Starting sync...\n');
 
     let successCount = 0;
@@ -237,8 +249,11 @@ async function syncData() {
 
   } catch (error) {
     console.error('\n❌ Sync failed:', error.message);
+    console.error('🐛 DEBUG: Full error:', error);
+    console.error('🐛 DEBUG: Error stack:', error.stack);
     process.exit(1);
   } finally {
+    console.log('🐛 DEBUG: Closing readline interface...');
     rl.close();
   }
 }
