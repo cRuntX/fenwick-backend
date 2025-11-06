@@ -60,6 +60,8 @@ async function initializePostgresDatabase() {
         pauses TEXT,
         responsibilities TEXT,
         completed BOOLEAN DEFAULT FALSE,
+        name_link TEXT,
+        practice_name_link TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
@@ -109,6 +111,18 @@ async function initializePostgresDatabase() {
     await db.query(`
       ALTER TABLE projects
       ADD COLUMN IF NOT EXISTS completed BOOLEAN DEFAULT FALSE
+    `).catch(() => {});
+
+    // Add hyperlink columns for project name and practice name
+    console.log('📦 Checking for hyperlink columns...');
+    await db.query(`
+      ALTER TABLE projects
+      ADD COLUMN IF NOT EXISTS name_link TEXT
+    `).catch(() => {});
+
+    await db.query(`
+      ALTER TABLE projects
+      ADD COLUMN IF NOT EXISTS practice_name_link TEXT
     `).catch(() => {});
 
     console.log('✅ New columns added (if they were missing)');
@@ -189,20 +203,22 @@ function migrateSQLiteSchema() {
         pauses TEXT,
         responsibilities TEXT,
         completed INTEGER DEFAULT 0,
+        name_link TEXT,
+        practice_name_link TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
-    
+
     // Copy data, converting type to project_types array
     db.run(`
       INSERT INTO projects_new
       (id, number, name, practice_name, brief_description, client, value, area, location,
-       project_types, type_color, thumbnail, notes, stages, pauses, responsibilities, completed, created_at, updated_at)
+       project_types, type_color, thumbnail, notes, stages, pauses, responsibilities, completed, name_link, practice_name_link, created_at, updated_at)
       SELECT
         id, number, name, NULL, NULL, client, value, area, location,
         '["' || type || '"]',
-        type_color, thumbnail, notes, stages, pauses, NULL, 0, created_at, updated_at
+        type_color, thumbnail, notes, stages, pauses, NULL, 0, NULL, NULL, created_at, updated_at
       FROM projects
     `, (err) => {
       if (err) {
@@ -242,6 +258,8 @@ function addNewColumnsToExistingTable() {
 
       const hasResponsibilities = columns.some(col => col.name === 'responsibilities');
       const hasCompleted = columns.some(col => col.name === 'completed');
+      const hasNameLink = columns.some(col => col.name === 'name_link');
+      const hasPracticeNameLink = columns.some(col => col.name === 'practice_name_link');
 
       if (!hasResponsibilities) {
         console.log('Adding responsibilities column...');
@@ -256,6 +274,22 @@ function addNewColumnsToExistingTable() {
         db.run('ALTER TABLE projects ADD COLUMN completed INTEGER DEFAULT 0', (err) => {
           if (err) console.error('❌ Error adding completed:', err);
           else console.log('✅ Added completed column');
+        });
+      }
+
+      if (!hasNameLink) {
+        console.log('Adding name_link column...');
+        db.run('ALTER TABLE projects ADD COLUMN name_link TEXT', (err) => {
+          if (err) console.error('❌ Error adding name_link:', err);
+          else console.log('✅ Added name_link column');
+        });
+      }
+
+      if (!hasPracticeNameLink) {
+        console.log('Adding practice_name_link column...');
+        db.run('ALTER TABLE projects ADD COLUMN practice_name_link TEXT', (err) => {
+          if (err) console.error('❌ Error adding practice_name_link:', err);
+          else console.log('✅ Added practice_name_link column');
         });
       }
 
@@ -288,6 +322,8 @@ function createSQLiteTables() {
       pauses TEXT,
       responsibilities TEXT,
       completed INTEGER DEFAULT 0,
+      name_link TEXT,
+      practice_name_link TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
@@ -448,7 +484,9 @@ app.get('/api/data', async (req, res) => {
         stages: JSON.parse(p.stages || '{}'),
         pauses: JSON.parse(p.pauses || '[]'),
         responsibilities: JSON.parse(p.responsibilities || '[]'),
-        completed: p.completed || false
+        completed: p.completed || false,
+        nameLink: p.name_link,
+        practiceNameLink: p.practice_name_link
       }));
       
       res.json({
@@ -484,7 +522,9 @@ app.get('/api/data', async (req, res) => {
             stages: JSON.parse(p.stages || '{}'),
             pauses: JSON.parse(p.pauses || '[]'),
             responsibilities: JSON.parse(p.responsibilities || '[]'),
-            completed: p.completed === 1
+            completed: p.completed === 1,
+            nameLink: p.name_link,
+            practiceNameLink: p.practice_name_link
           }));
           
           res.json({
@@ -527,29 +567,33 @@ app.post('/api/projects', async (req, res) => {
     stages: JSON.stringify(project.stages),
     pauses: JSON.stringify(project.pauses || []),
     responsibilities: JSON.stringify(project.responsibilities || []),
-    completed: project.completed || false
+    completed: project.completed || false,
+    nameLink: project.nameLink || null,
+    practiceNameLink: project.practiceNameLink || null
   };
   
   try {
     if (isProduction) {
       await db.query(
         `INSERT INTO projects (id, number, name, practice_name, brief_description, client, value, area, location,
-         project_types, type_color, thumbnail, notes, stages, pauses, responsibilities, completed)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
+         project_types, type_color, thumbnail, notes, stages, pauses, responsibilities, completed, name_link, practice_name_link)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
         [projectData.id, projectData.number, projectData.name, projectData.practiceName,
          projectData.briefDescription, projectData.client, projectData.value, projectData.area,
          projectData.location, projectData.projectTypes, projectData.typeColor, projectData.thumbnail,
-         projectData.notes, projectData.stages, projectData.pauses, projectData.responsibilities, projectData.completed]
+         projectData.notes, projectData.stages, projectData.pauses, projectData.responsibilities, projectData.completed,
+         projectData.nameLink, projectData.practiceNameLink]
       );
     } else {
       db.run(
         `INSERT INTO projects (id, number, name, practice_name, brief_description, client, value, area, location,
-         project_types, type_color, thumbnail, notes, stages, pauses, responsibilities, completed)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         project_types, type_color, thumbnail, notes, stages, pauses, responsibilities, completed, name_link, practice_name_link)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [projectData.id, projectData.number, projectData.name, projectData.practiceName,
          projectData.briefDescription, projectData.client, projectData.value, projectData.area,
          projectData.location, projectData.projectTypes, projectData.typeColor, projectData.thumbnail,
-         projectData.notes, projectData.stages, projectData.pauses, projectData.responsibilities, projectData.completed ? 1 : 0]
+         projectData.notes, projectData.stages, projectData.pauses, projectData.responsibilities, projectData.completed ? 1 : 0,
+         projectData.nameLink, projectData.practiceNameLink]
       );
     }
     console.log('✅ Project created!');
@@ -571,25 +615,28 @@ app.put('/api/projects/:id', async (req, res) => {
       await db.query(
         `UPDATE projects SET number=$1, name=$2, practice_name=$3, brief_description=$4, client=$5,
          value=$6, area=$7, location=$8, project_types=$9, type_color=$10, thumbnail=$11, notes=$12,
-         stages=$13, pauses=$14, responsibilities=$15, completed=$16, updated_at=CURRENT_TIMESTAMP
-         WHERE id=$17`,
+         stages=$13, pauses=$14, responsibilities=$15, completed=$16, name_link=$17, practice_name_link=$18,
+         updated_at=CURRENT_TIMESTAMP
+         WHERE id=$19`,
         [project.number, project.name, project.practiceName || null, project.briefDescription || null,
          project.client || '', project.value || '', project.area || '', project.location || '',
          JSON.stringify(project.projectTypes || []), project.typeColor, project.thumbnail || '',
          project.notes || '', JSON.stringify(project.stages), JSON.stringify(project.pauses || []),
          JSON.stringify(project.responsibilities || []), project.completed || false,
+         project.nameLink || null, project.practiceNameLink || null,
          projectId]
       );
     } else {
       db.run(
         `UPDATE projects SET number=?, name=?, practice_name=?, brief_description=?, client=?, value=?,
          area=?, location=?, project_types=?, type_color=?, thumbnail=?, notes=?, stages=?, pauses=?,
-         responsibilities=?, completed=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
+         responsibilities=?, completed=?, name_link=?, practice_name_link=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
         [project.number, project.name, project.practiceName || null, project.briefDescription || null,
          project.client || '', project.value || '', project.area || '', project.location || '',
          JSON.stringify(project.projectTypes || []), project.typeColor, project.thumbnail || '',
          project.notes || '', JSON.stringify(project.stages), JSON.stringify(project.pauses || []),
          JSON.stringify(project.responsibilities || []), project.completed ? 1 : 0,
+         project.nameLink || null, project.practiceNameLink || null,
          projectId]
       );
     }
