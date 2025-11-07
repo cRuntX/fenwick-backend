@@ -61,6 +61,7 @@ async function initializePostgresDatabase() {
         pauses TEXT,
         responsibilities TEXT,
         completed BOOLEAN DEFAULT FALSE,
+        confidential BOOLEAN DEFAULT FALSE,
         name_link TEXT,
         practice_name_link TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -124,6 +125,12 @@ async function initializePostgresDatabase() {
     await db.query(`
       ALTER TABLE projects
       ADD COLUMN IF NOT EXISTS practice_name_link TEXT
+    `).catch(() => {});
+
+    // Add confidential column
+    await db.query(`
+      ALTER TABLE projects
+      ADD COLUMN IF NOT EXISTS confidential BOOLEAN DEFAULT FALSE
     `).catch(() => {});
 
     console.log('✅ New columns added (if they were missing)');
@@ -204,6 +211,7 @@ function migrateSQLiteSchema() {
         pauses TEXT,
         responsibilities TEXT,
         completed INTEGER DEFAULT 0,
+        confidential INTEGER DEFAULT 0,
         name_link TEXT,
         practice_name_link TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -215,11 +223,11 @@ function migrateSQLiteSchema() {
     db.run(`
       INSERT INTO projects_new
       (id, number, name, practice_name, brief_description, client, value, area, location,
-       project_types, type_color, thumbnail, notes, stages, pauses, responsibilities, completed, name_link, practice_name_link, created_at, updated_at)
+       project_types, type_color, thumbnail, notes, stages, pauses, responsibilities, completed, confidential, name_link, practice_name_link, created_at, updated_at)
       SELECT
         id, number, name, NULL, NULL, client, value, area, location,
         '["' || type || '"]',
-        type_color, thumbnail, notes, stages, pauses, NULL, 0, NULL, NULL, created_at, updated_at
+        type_color, thumbnail, notes, stages, pauses, NULL, 0, 0, NULL, NULL, created_at, updated_at
       FROM projects
     `, (err) => {
       if (err) {
@@ -259,6 +267,7 @@ function addNewColumnsToExistingTable() {
 
       const hasResponsibilities = columns.some(col => col.name === 'responsibilities');
       const hasCompleted = columns.some(col => col.name === 'completed');
+      const hasConfidential = columns.some(col => col.name === 'confidential');
       const hasNameLink = columns.some(col => col.name === 'name_link');
       const hasPracticeNameLink = columns.some(col => col.name === 'practice_name_link');
 
@@ -275,6 +284,14 @@ function addNewColumnsToExistingTable() {
         db.run('ALTER TABLE projects ADD COLUMN completed INTEGER DEFAULT 0', (err) => {
           if (err) console.error('❌ Error adding completed:', err);
           else console.log('✅ Added completed column');
+        });
+      }
+
+      if (!hasConfidential) {
+        console.log('Adding confidential column...');
+        db.run('ALTER TABLE projects ADD COLUMN confidential INTEGER DEFAULT 0', (err) => {
+          if (err) console.error('❌ Error adding confidential:', err);
+          else console.log('✅ Added confidential column');
         });
       }
 
@@ -323,6 +340,7 @@ function createSQLiteTables() {
       pauses TEXT,
       responsibilities TEXT,
       completed INTEGER DEFAULT 0,
+      confidential INTEGER DEFAULT 0,
       name_link TEXT,
       practice_name_link TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -486,6 +504,7 @@ app.get('/api/data', async (req, res) => {
         pauses: JSON.parse(p.pauses || '[]'),
         responsibilities: JSON.parse(p.responsibilities || '[]'),
         completed: p.completed || false,
+        confidential: p.confidential || false,
         nameLink: p.name_link,
         practiceNameLink: p.practice_name_link
       }));
@@ -524,6 +543,7 @@ app.get('/api/data', async (req, res) => {
             pauses: JSON.parse(p.pauses || '[]'),
             responsibilities: JSON.parse(p.responsibilities || '[]'),
             completed: p.completed === 1,
+            confidential: p.confidential === 1,
             nameLink: p.name_link,
             practiceNameLink: p.practice_name_link
           }));
@@ -569,6 +589,7 @@ app.post('/api/projects', async (req, res) => {
     pauses: JSON.stringify(project.pauses || []),
     responsibilities: JSON.stringify(project.responsibilities || []),
     completed: project.completed || false,
+    confidential: project.confidential || false,
     nameLink: project.nameLink || null,
     practiceNameLink: project.practiceNameLink || null
   };
@@ -577,24 +598,24 @@ app.post('/api/projects', async (req, res) => {
     if (isProduction) {
       await db.query(
         `INSERT INTO projects (id, number, name, practice_name, brief_description, client, value, area, location,
-         project_types, type_color, thumbnail, notes, stages, pauses, responsibilities, completed, name_link, practice_name_link)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
+         project_types, type_color, thumbnail, notes, stages, pauses, responsibilities, completed, confidential, name_link, practice_name_link)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`,
         [projectData.id, projectData.number, projectData.name, projectData.practiceName,
          projectData.briefDescription, projectData.client, projectData.value, projectData.area,
          projectData.location, projectData.projectTypes, projectData.typeColor, projectData.thumbnail,
          projectData.notes, projectData.stages, projectData.pauses, projectData.responsibilities, projectData.completed,
-         projectData.nameLink, projectData.practiceNameLink]
+         projectData.confidential, projectData.nameLink, projectData.practiceNameLink]
       );
     } else {
       db.run(
         `INSERT INTO projects (id, number, name, practice_name, brief_description, client, value, area, location,
-         project_types, type_color, thumbnail, notes, stages, pauses, responsibilities, completed, name_link, practice_name_link)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         project_types, type_color, thumbnail, notes, stages, pauses, responsibilities, completed, confidential, name_link, practice_name_link)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [projectData.id, projectData.number, projectData.name, projectData.practiceName,
          projectData.briefDescription, projectData.client, projectData.value, projectData.area,
          projectData.location, projectData.projectTypes, projectData.typeColor, projectData.thumbnail,
          projectData.notes, projectData.stages, projectData.pauses, projectData.responsibilities, projectData.completed ? 1 : 0,
-         projectData.nameLink, projectData.practiceNameLink]
+         projectData.confidential ? 1 : 0, projectData.nameLink, projectData.practiceNameLink]
       );
     }
     console.log('✅ Project created!');
@@ -616,14 +637,14 @@ app.put('/api/projects/:id', async (req, res) => {
       await db.query(
         `UPDATE projects SET number=$1, name=$2, practice_name=$3, brief_description=$4, client=$5,
          value=$6, area=$7, location=$8, project_types=$9, type_color=$10, thumbnail=$11, notes=$12,
-         stages=$13, pauses=$14, responsibilities=$15, completed=$16, name_link=$17, practice_name_link=$18,
+         stages=$13, pauses=$14, responsibilities=$15, completed=$16, confidential=$17, name_link=$18, practice_name_link=$19,
          updated_at=CURRENT_TIMESTAMP
-         WHERE id=$19`,
+         WHERE id=$20`,
         [project.number, project.name, project.practiceName || null, project.briefDescription || null,
          project.client || '', project.value || '', project.area || '', project.location || '',
          JSON.stringify(project.projectTypes || []), project.typeColor, project.thumbnail || '',
          project.notes || '', JSON.stringify(project.stages), JSON.stringify(project.pauses || []),
-         JSON.stringify(project.responsibilities || []), project.completed || false,
+         JSON.stringify(project.responsibilities || []), project.completed || false, project.confidential || false,
          project.nameLink || null, project.practiceNameLink || null,
          projectId]
       );
@@ -631,12 +652,12 @@ app.put('/api/projects/:id', async (req, res) => {
       db.run(
         `UPDATE projects SET number=?, name=?, practice_name=?, brief_description=?, client=?, value=?,
          area=?, location=?, project_types=?, type_color=?, thumbnail=?, notes=?, stages=?, pauses=?,
-         responsibilities=?, completed=?, name_link=?, practice_name_link=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
+         responsibilities=?, completed=?, confidential=?, name_link=?, practice_name_link=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
         [project.number, project.name, project.practiceName || null, project.briefDescription || null,
          project.client || '', project.value || '', project.area || '', project.location || '',
          JSON.stringify(project.projectTypes || []), project.typeColor, project.thumbnail || '',
          project.notes || '', JSON.stringify(project.stages), JSON.stringify(project.pauses || []),
-         JSON.stringify(project.responsibilities || []), project.completed ? 1 : 0,
+         JSON.stringify(project.responsibilities || []), project.completed ? 1 : 0, project.confidential ? 1 : 0,
          project.nameLink || null, project.practiceNameLink || null,
          projectId]
       );
