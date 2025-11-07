@@ -1,5 +1,5 @@
 // Import required packages
-import 'dotenv/config';
+import 'dotenv/config'; // Load environment variables from .env file
 import express from 'express';
 import cors from 'cors';
 import sqlite3 from 'sqlite3';
