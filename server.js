@@ -476,6 +476,11 @@ function checkAndCreateDefaultSQLiteSettings() {
 
 // ROUTES
 
+// Health check endpoint (for keeping server awake)
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
 // Get all data
 app.get('/api/data', async (req, res) => {
   console.log('📥 Request: Get all data');

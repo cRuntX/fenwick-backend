@@ -49,7 +49,12 @@ db.get("SELECT * FROM settings LIMIT 1", (err, settings) => {
       thumbnail: p.thumbnail,
       notes: p.notes,
       stages: JSON.parse(p.stages || '{}'),
-      pauses: JSON.parse(p.pauses || '[]')
+      pauses: JSON.parse(p.pauses || '[]'),
+      responsibilities: JSON.parse(p.responsibilities || '[]'),
+      completed: p.completed || false,
+      confidential: p.confidential || false,
+      nameLink: p.name_link,
+      practiceNameLink: p.practice_name_link
     }));
 
     // Build export data
