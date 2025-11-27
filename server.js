@@ -488,7 +488,7 @@ app.get('/api/data', async (req, res) => {
   try {
     if (isProduction) {
       const settingsResult = await db.query("SELECT * FROM settings LIMIT 1");
-      const projectsResult = await db.query("SELECT * FROM projects ORDER BY number");
+      const projectsResult = await db.query("SELECT * FROM projects ORDER BY number DESC");
       
       const settings = settingsResult.rows[0];
       const projects = projectsResult.rows.map(p => ({
@@ -527,7 +527,7 @@ app.get('/api/data', async (req, res) => {
       db.get("SELECT * FROM settings LIMIT 1", (err, settings) => {
         if (err) return res.status(500).json({ error: 'Failed to get settings' });
         
-        db.all("SELECT * FROM projects ORDER BY number", (err, projects) => {
+        db.all("SELECT * FROM projects ORDER BY number DESC", (err, projects) => {
           if (err) return res.status(500).json({ error: 'Failed to get projects' });
           
           const processedProjects = projects.map(p => ({
