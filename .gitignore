@@ -15,13 +15,14 @@ node_modules/
 *.db-shm
 fenwick_backup_*.db
 
-# Backups
+# Backups and exports
 backup_*/
 *_backup_*/
 backup-*.json
 *-backup-*.json
 backup-data.json
 local-data.json
+supabase-export.json
 
 # Logs
 npm-debug.log*

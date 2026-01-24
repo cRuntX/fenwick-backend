@@ -710,7 +710,6 @@ app.post('/api/export-pdf', async (req, res) => {
     const pxToMm = (px) => (px * 25.4) / 96;
 
     const pdfWidth = width ? pxToMm(width) : 297; // Default A4 landscape width
-    const pdfHeight = height ? pxToMm(height) : 210; // Default A4 landscape height
 
     // Launch Puppeteer browser
     const browser = await puppeteer.launch({
@@ -720,13 +719,11 @@ app.post('/api/export-pdf', async (req, res) => {
 
     const page = await browser.newPage();
 
-    // Set viewport to match content size
-    if (width && height) {
-      await page.setViewport({
-        width: Math.ceil(width),
-        height: Math.ceil(height)
-      });
-    }
+    // Set viewport - use large viewport for multi-page content
+    await page.setViewport({
+      width: Math.ceil(width || 1200),
+      height: Math.ceil(height || 3000) // Large enough for initial render
+    });
 
     // Construct complete HTML with embedded styles
     const fullHTML = `
@@ -748,7 +745,7 @@ app.post('/api/export-pdf', async (req, res) => {
               -webkit-font-smoothing: antialiased;
               -moz-osx-font-smoothing: grayscale;
               text-rendering: geometricPrecision;
-              background: #fafafa;
+              background: #ffffff;
             }
 
             /* Print-specific styles */
@@ -772,19 +769,36 @@ app.post('/api/export-pdf', async (req, res) => {
       waitUntil: 'networkidle0'
     });
 
-    // Generate PDF with dynamic dimensions
-    const pdf = await page.pdf({
-      width: `${pdfWidth}mm`,
-      height: `${pdfHeight}mm`,
-      printBackground: true,
-      preferCSSPageSize: false,
-      margin: {
-        top: 0,
-        right: 0,
-        bottom: 0,
-        left: 0
-      }
-    });
+    // Generate PDF as single continuous page
+    let pdfOptions;
+    if (height) {
+      // Single-page PDF with fixed dimensions
+      const pdfHeight = pxToMm(height);
+      pdfOptions = {
+        width: `${pdfWidth}mm`,
+        height: `${pdfHeight}mm`,
+        printBackground: true,
+        preferCSSPageSize: false,
+        margin: { top: 0, right: 0, bottom: 0, left: 0 }
+      };
+    } else {
+      // Single continuous page - calculate actual content height
+      const contentHeight = await page.evaluate(() => {
+        return document.documentElement.scrollHeight;
+      });
+
+      const pdfHeight = pxToMm(contentHeight);
+
+      pdfOptions = {
+        width: `${pdfWidth}mm`,
+        height: `${pdfHeight}mm`,
+        printBackground: true,
+        preferCSSPageSize: false,
+        margin: { top: 0, right: 0, bottom: 0, left: 0 }
+      };
+    }
+
+    const pdf = await page.pdf(pdfOptions);
 
     await browser.close();
 
