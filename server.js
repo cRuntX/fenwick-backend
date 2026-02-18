@@ -64,6 +64,7 @@ async function initializePostgresDatabase() {
         confidential BOOLEAN DEFAULT FALSE,
         name_link TEXT,
         practice_name_link TEXT,
+        rwe_months TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
@@ -141,9 +142,15 @@ async function initializePostgresDatabase() {
         start_year INTEGER DEFAULT 2011,
         end_year INTEGER DEFAULT 2026,
         color_map TEXT NOT NULL,
-        project_type_colors TEXT
+        project_type_colors TEXT,
+        practice_periods TEXT
       )
     `);
+
+    // Add practice_periods column if it doesn't exist
+    await db.query(`
+      ALTER TABLE settings ADD COLUMN IF NOT EXISTS practice_periods TEXT
+    `).catch(() => {});
     
     console.log('✅ PostgreSQL tables ready!');
     await checkAndCreateDefaultPostgresSettings();
@@ -214,6 +221,7 @@ function migrateSQLiteSchema() {
         confidential INTEGER DEFAULT 0,
         name_link TEXT,
         practice_name_link TEXT,
+        rwe_months TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
@@ -311,6 +319,15 @@ function addNewColumnsToExistingTable() {
         });
       }
 
+      const hasRweMonths = columns.some(col => col.name === 'rwe_months');
+      if (!hasRweMonths) {
+        console.log('Adding rwe_months column...');
+        db.run('ALTER TABLE projects ADD COLUMN rwe_months TEXT', (err) => {
+          if (err) console.error('❌ Error adding rwe_months:', err);
+          else console.log('✅ Added rwe_months column');
+        });
+      }
+
       // Wait a bit for ALTER TABLE to complete, then proceed
       setTimeout(() => {
         console.log('✅ Migration completed!');
@@ -343,6 +360,7 @@ function createSQLiteTables() {
       confidential INTEGER DEFAULT 0,
       name_link TEXT,
       practice_name_link TEXT,
+      rwe_months TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
@@ -361,10 +379,15 @@ function createSettingsTable() {
       start_year INTEGER DEFAULT 2011,
       end_year INTEGER DEFAULT 2026,
       color_map TEXT NOT NULL,
-      project_type_colors TEXT
+      project_type_colors TEXT,
+      practice_periods TEXT
     )
   `, () => {
-    checkAndCreateDefaultSQLiteSettings();
+    // Add practice_periods column if it doesn't exist (for existing databases)
+    db.run('ALTER TABLE settings ADD COLUMN practice_periods TEXT', (err) => {
+      // Ignore error if column already exists
+      checkAndCreateDefaultSQLiteSettings();
+    });
   });
 }
 
@@ -511,7 +534,8 @@ app.get('/api/data', async (req, res) => {
         completed: p.completed || false,
         confidential: p.confidential || false,
         nameLink: p.name_link,
-        practiceNameLink: p.practice_name_link
+        practiceNameLink: p.practice_name_link,
+        rweMonths: JSON.parse(p.rwe_months || '[]')
       }));
       
       res.json({
@@ -520,7 +544,8 @@ app.get('/api/data', async (req, res) => {
           startYear: settings?.start_year || 2011,
           endYear: settings?.end_year || 2026,
           colorMap: JSON.parse(settings?.color_map || '{}'),
-          projectTypeColors: JSON.parse(settings?.project_type_colors || '{}')
+          projectTypeColors: JSON.parse(settings?.project_type_colors || '{}'),
+          practicePeriods: JSON.parse(settings?.practice_periods || '[]')
         }
       });
     } else {
@@ -550,7 +575,8 @@ app.get('/api/data', async (req, res) => {
             completed: p.completed === 1,
             confidential: p.confidential === 1,
             nameLink: p.name_link,
-            practiceNameLink: p.practice_name_link
+            practiceNameLink: p.practice_name_link,
+            rweMonths: JSON.parse(p.rwe_months || '[]')
           }));
           
           res.json({
@@ -559,7 +585,8 @@ app.get('/api/data', async (req, res) => {
               startYear: settings?.start_year || 2011,
               endYear: settings?.end_year || 2026,
               colorMap: JSON.parse(settings?.color_map || '{}'),
-              projectTypeColors: JSON.parse(settings?.project_type_colors || '{}')
+              projectTypeColors: JSON.parse(settings?.project_type_colors || '{}'),
+              practicePeriods: JSON.parse(settings?.practice_periods || '[]')
             }
           });
         });
@@ -596,31 +623,32 @@ app.post('/api/projects', async (req, res) => {
     completed: project.completed || false,
     confidential: project.confidential || false,
     nameLink: project.nameLink || null,
-    practiceNameLink: project.practiceNameLink || null
+    practiceNameLink: project.practiceNameLink || null,
+    rweMonths: JSON.stringify(project.rweMonths || [])
   };
   
   try {
     if (isProduction) {
       await db.query(
         `INSERT INTO projects (id, number, name, practice_name, brief_description, client, value, area, location,
-         project_types, type_color, thumbnail, notes, stages, pauses, responsibilities, completed, confidential, name_link, practice_name_link)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`,
+         project_types, type_color, thumbnail, notes, stages, pauses, responsibilities, completed, confidential, name_link, practice_name_link, rwe_months)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`,
         [projectData.id, projectData.number, projectData.name, projectData.practiceName,
          projectData.briefDescription, projectData.client, projectData.value, projectData.area,
          projectData.location, projectData.projectTypes, projectData.typeColor, projectData.thumbnail,
          projectData.notes, projectData.stages, projectData.pauses, projectData.responsibilities, projectData.completed,
-         projectData.confidential, projectData.nameLink, projectData.practiceNameLink]
+         projectData.confidential, projectData.nameLink, projectData.practiceNameLink, projectData.rweMonths]
       );
     } else {
       db.run(
         `INSERT INTO projects (id, number, name, practice_name, brief_description, client, value, area, location,
-         project_types, type_color, thumbnail, notes, stages, pauses, responsibilities, completed, confidential, name_link, practice_name_link)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         project_types, type_color, thumbnail, notes, stages, pauses, responsibilities, completed, confidential, name_link, practice_name_link, rwe_months)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [projectData.id, projectData.number, projectData.name, projectData.practiceName,
          projectData.briefDescription, projectData.client, projectData.value, projectData.area,
          projectData.location, projectData.projectTypes, projectData.typeColor, projectData.thumbnail,
          projectData.notes, projectData.stages, projectData.pauses, projectData.responsibilities, projectData.completed ? 1 : 0,
-         projectData.confidential ? 1 : 0, projectData.nameLink, projectData.practiceNameLink]
+         projectData.confidential ? 1 : 0, projectData.nameLink, projectData.practiceNameLink, projectData.rweMonths]
       );
     }
     console.log('✅ Project created!');
@@ -643,28 +671,28 @@ app.put('/api/projects/:id', async (req, res) => {
         `UPDATE projects SET number=$1, name=$2, practice_name=$3, brief_description=$4, client=$5,
          value=$6, area=$7, location=$8, project_types=$9, type_color=$10, thumbnail=$11, notes=$12,
          stages=$13, pauses=$14, responsibilities=$15, completed=$16, confidential=$17, name_link=$18, practice_name_link=$19,
-         updated_at=CURRENT_TIMESTAMP
-         WHERE id=$20`,
+         rwe_months=$20, updated_at=CURRENT_TIMESTAMP
+         WHERE id=$21`,
         [project.number, project.name, project.practiceName || null, project.briefDescription || null,
          project.client || '', project.value || '', project.area || '', project.location || '',
          JSON.stringify(project.projectTypes || []), project.typeColor, project.thumbnail || '',
          project.notes || '', JSON.stringify(project.stages), JSON.stringify(project.pauses || []),
          JSON.stringify(project.responsibilities || []), project.completed || false, project.confidential || false,
          project.nameLink || null, project.practiceNameLink || null,
-         projectId]
+         JSON.stringify(project.rweMonths || []), projectId]
       );
     } else {
       db.run(
         `UPDATE projects SET number=?, name=?, practice_name=?, brief_description=?, client=?, value=?,
          area=?, location=?, project_types=?, type_color=?, thumbnail=?, notes=?, stages=?, pauses=?,
-         responsibilities=?, completed=?, confidential=?, name_link=?, practice_name_link=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
+         responsibilities=?, completed=?, confidential=?, name_link=?, practice_name_link=?, rwe_months=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
         [project.number, project.name, project.practiceName || null, project.briefDescription || null,
          project.client || '', project.value || '', project.area || '', project.location || '',
          JSON.stringify(project.projectTypes || []), project.typeColor, project.thumbnail || '',
          project.notes || '', JSON.stringify(project.stages), JSON.stringify(project.pauses || []),
          JSON.stringify(project.responsibilities || []), project.completed ? 1 : 0, project.confidential ? 1 : 0,
          project.nameLink || null, project.practiceNameLink || null,
-         projectId]
+         JSON.stringify(project.rweMonths || []), projectId]
       );
     }
     console.log('✅ Project updated!');
@@ -679,7 +707,7 @@ app.put('/api/projects/:id', async (req, res) => {
 app.delete('/api/projects/:id', async (req, res) => {
   const projectId = req.params.id;
   console.log('📥 Request: Delete project', projectId);
-  
+
   try {
     if (isProduction) {
       await db.query("DELETE FROM projects WHERE id=$1", [projectId]);
@@ -691,6 +719,65 @@ app.delete('/api/projects/:id', async (req, res) => {
   } catch (err) {
     console.error('❌ Error:', err);
     res.status(500).json({ error: 'Failed to delete project' });
+  }
+});
+
+// Update practice periods
+app.put('/api/practice-periods', (req, res) => {
+  const { practicePeriods } = req.body;
+  const practicePeriodsJson = JSON.stringify(practicePeriods || []);
+  console.log('📥 Request: Update practice periods');
+
+  if (isProduction) {
+    // PostgreSQL
+    db.query(
+      "UPDATE settings SET practice_periods=$1",
+      [practicePeriodsJson]
+    ).then(() => {
+      console.log('✅ Practice periods updated!');
+      res.json({ success: true });
+    }).catch(err => {
+      console.error('❌ PostgreSQL Error:', err);
+      res.status(500).json({ error: 'Failed to update practice periods' });
+    });
+  } else {
+    // SQLite - simplified approach
+    // Step 1: Try to add column (will fail silently if exists)
+    db.run('ALTER TABLE settings ADD COLUMN practice_periods TEXT', function(alterErr) {
+      // Step 2: Update all rows (should only be one row)
+      db.run(
+        "UPDATE settings SET practice_periods = ?",
+        [practicePeriodsJson],
+        function(err) {
+          if (err) {
+            console.error('❌ SQLite Update Error:', err.message);
+            res.status(500).json({ error: 'Database error: ' + err.message });
+            return;
+          }
+
+          if (this.changes === 0) {
+            console.log('⚠️ No rows updated, settings table might be empty');
+            // Try to insert if no rows exist
+            db.run(
+              "INSERT INTO settings (color_map, project_type_colors, practice_periods) VALUES ('{}', '{}', ?)",
+              [practicePeriodsJson],
+              function(insertErr) {
+                if (insertErr) {
+                  console.error('❌ SQLite Insert Error:', insertErr.message);
+                  res.status(500).json({ error: 'Database error: ' + insertErr.message });
+                } else {
+                  console.log('✅ Practice periods inserted!');
+                  res.json({ success: true });
+                }
+              }
+            );
+          } else {
+            console.log('✅ Practice periods updated! Rows:', this.changes);
+            res.json({ success: true });
+          }
+        }
+      );
+    });
   }
 });
 
