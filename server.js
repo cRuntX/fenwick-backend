@@ -631,24 +631,24 @@ app.post('/api/projects', async (req, res) => {
     if (isProduction) {
       await db.query(
         `INSERT INTO projects (id, number, name, practice_name, brief_description, client, value, area, location,
-         project_types, type_color, thumbnail, notes, stages, pauses, responsibilities, completed, confidential, name_link, practice_name_link, rwe_months)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`,
+         project_types, type_color, thumbnail, notes, stages, pauses, responsibilities, completed, confidential, name_link, practice_name_link)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`,
         [projectData.id, projectData.number, projectData.name, projectData.practiceName,
          projectData.briefDescription, projectData.client, projectData.value, projectData.area,
          projectData.location, projectData.projectTypes, projectData.typeColor, projectData.thumbnail,
          projectData.notes, projectData.stages, projectData.pauses, projectData.responsibilities, projectData.completed,
-         projectData.confidential, projectData.nameLink, projectData.practiceNameLink, projectData.rweMonths]
+         projectData.confidential, projectData.nameLink, projectData.practiceNameLink]
       );
     } else {
       db.run(
         `INSERT INTO projects (id, number, name, practice_name, brief_description, client, value, area, location,
-         project_types, type_color, thumbnail, notes, stages, pauses, responsibilities, completed, confidential, name_link, practice_name_link, rwe_months)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         project_types, type_color, thumbnail, notes, stages, pauses, responsibilities, completed, confidential, name_link, practice_name_link)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [projectData.id, projectData.number, projectData.name, projectData.practiceName,
          projectData.briefDescription, projectData.client, projectData.value, projectData.area,
          projectData.location, projectData.projectTypes, projectData.typeColor, projectData.thumbnail,
          projectData.notes, projectData.stages, projectData.pauses, projectData.responsibilities, projectData.completed ? 1 : 0,
-         projectData.confidential ? 1 : 0, projectData.nameLink, projectData.practiceNameLink, projectData.rweMonths]
+         projectData.confidential ? 1 : 0, projectData.nameLink, projectData.practiceNameLink]
       );
     }
     console.log('✅ Project created!');
@@ -671,28 +671,26 @@ app.put('/api/projects/:id', async (req, res) => {
         `UPDATE projects SET number=$1, name=$2, practice_name=$3, brief_description=$4, client=$5,
          value=$6, area=$7, location=$8, project_types=$9, type_color=$10, thumbnail=$11, notes=$12,
          stages=$13, pauses=$14, responsibilities=$15, completed=$16, confidential=$17, name_link=$18, practice_name_link=$19,
-         rwe_months=$20, updated_at=CURRENT_TIMESTAMP
-         WHERE id=$21`,
+         updated_at=CURRENT_TIMESTAMP
+         WHERE id=$20`,
         [project.number, project.name, project.practiceName || null, project.briefDescription || null,
          project.client || '', project.value || '', project.area || '', project.location || '',
          JSON.stringify(project.projectTypes || []), project.typeColor, project.thumbnail || '',
          project.notes || '', JSON.stringify(project.stages), JSON.stringify(project.pauses || []),
          JSON.stringify(project.responsibilities || []), project.completed || false, project.confidential || false,
-         project.nameLink || null, project.practiceNameLink || null,
-         JSON.stringify(project.rweMonths || []), projectId]
+         project.nameLink || null, project.practiceNameLink || null, projectId]
       );
     } else {
       db.run(
         `UPDATE projects SET number=?, name=?, practice_name=?, brief_description=?, client=?, value=?,
          area=?, location=?, project_types=?, type_color=?, thumbnail=?, notes=?, stages=?, pauses=?,
-         responsibilities=?, completed=?, confidential=?, name_link=?, practice_name_link=?, rwe_months=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
+         responsibilities=?, completed=?, confidential=?, name_link=?, practice_name_link=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
         [project.number, project.name, project.practiceName || null, project.briefDescription || null,
          project.client || '', project.value || '', project.area || '', project.location || '',
          JSON.stringify(project.projectTypes || []), project.typeColor, project.thumbnail || '',
          project.notes || '', JSON.stringify(project.stages), JSON.stringify(project.pauses || []),
          JSON.stringify(project.responsibilities || []), project.completed ? 1 : 0, project.confidential ? 1 : 0,
-         project.nameLink || null, project.practiceNameLink || null,
-         JSON.stringify(project.rweMonths || []), projectId]
+         project.nameLink || null, project.practiceNameLink || null, projectId]
       );
     }
     console.log('✅ Project updated!');
